@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <time.h>
 
 #define CACHE_LINE_SIZE 64
 
@@ -35,24 +36,29 @@ void* threadFunc(void* arg) {
 
 int main(int argc, char* argv[]) {
 	if (argc != 2) {
-		printf("usage: <program> <threads>\n");
+		printf("usage: ./program <#threads>\n");
 		exit(1);
 	}
 
 	if (atoi(argv[1]) <= 0)
 		exit(1);
 
-	int number_of_threads = atoi(argv[1]);
-	pthread_t threads[number_of_threads];
-	ThreadArg args[number_of_threads];
+	int number_of_threads = atoi(argv[1]);	// Get number of threads to be created
+	pthread_t threads[number_of_threads];	// Array to store the threads 
+	ThreadArg args[number_of_threads];	// Array to store the arguments that will be passed to the threads
+	clock_t sum_time, array_creation_time;	
 
+	// Build an array of size n: 1, 2, 3, ..... , n
+	array_creation_time = clock();
 	long work_array_size = 1000000000; 
 	work_array = (long*) calloc(sizeof(long), work_array_size);
 	long i;
 	for (i = 0; i < work_array_size; i++) {
 		work_array[i] = i+1; 
 	}
+	array_creation_time = clock() - array_creation_time;
 
+	// Make arguments to be passed to threads and store that in args[] array
 	long allocated_indices = 0;
 	for (i = 0; i < number_of_threads; i++) {
 		if (i != number_of_threads-1) {
@@ -64,16 +70,22 @@ int main(int argc, char* argv[]) {
 		allocated_indices += work_array_size/number_of_threads;
 	}
 
+	// Create the respected number of threads
+	sum_time = clock();
 	for (i = 0; i < number_of_threads; i++) {
 		pthread_create(&threads[i], NULL, threadFunc, &args[i]);
 	}
+	sum_time = clock() - sum_time;
 
+	// Wait for the threads to join
 	for (i = 0; i < number_of_threads; i++) {
 		pthread_join(threads[i], NULL);
 	}
 
-	printf("Sum = %lld\n", sum);
+	// Display sum and taken times
+	printf("Sum = %lld\nCreation of array of size n took %f seconds\nThreads summing the array took %f seconds\n", 
+		sum, (((double)array_creation_time)/CLOCKS_PER_SEC), (((double)sum_time)/CLOCKS_PER_SEC));
 
-	free(work_array);	
+	free(work_array);	// Free the number array previously created	
 	return 0;
 }
