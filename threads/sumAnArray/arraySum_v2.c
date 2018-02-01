@@ -45,10 +45,10 @@ int main(int argc, char* argv[]) {
                 exit(1);
 
         int i, number_of_threads = atoi(argv[1]);	// Get number of threads to be created
-	long n = 100000000;				// n numbers to sum
+	long n = 1000000000;				// n numbers to sum
         pthread_t threads[number_of_threads];   	// Array to store the threads 
         ThreadArg args[number_of_threads];      	// Array to store the arguments that will be passed to the threads
-        clock_t sum_time;				// Clock to measure thread sum time
+       // clock_t sum_time;				// Clock to measure thread sum time
 
         // Make arguments to be passed to threads and store that in args[] array
         long allocated_numbers = 1;
@@ -63,11 +63,11 @@ int main(int argc, char* argv[]) {
         }
 
         // Create the respected number of threads
-        sum_time = clock();
+        //sum_time = clock();
         for (i = 0; i < number_of_threads; i++) {
                 pthread_create(&threads[i], NULL, threadFunc, &args[i]);
         }
-        sum_time = clock() - sum_time;
+        //sum_time = clock() - sum_time;
 
         // Wait for the threads to join
         for (i = 0; i < number_of_threads; i++) {
@@ -75,8 +75,9 @@ int main(int argc, char* argv[]) {
         }
 
         // Display sum and taken times
-        printf("Sum = %lld\nThreads summing the array took %f seconds\n",
-                sum, (((double)sum_time)/CLOCKS_PER_SEC));
+        //printf("for n = %ld, Sum = %lld\nThreads summing the array took %f seconds\n",
+        //        n, sum, (((double)sum_time)/CLOCKS_PER_SEC));
+	printf("for n = %ld, Sum = %lld\n", n, sum);
 
         return 0;
 }
