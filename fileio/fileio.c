@@ -48,10 +48,10 @@ int main(int argc, char* argv[]) {
 	printf("\nReading the file again...\n");
 	fseek(fp, 0, SEEK_SET);
 	c = fgetc(fp);
-        while (c != EOF) {
-                printf("%c", c);
-                c = fgetc(fp);
-        }
+    while (c != EOF) {
+        printf("%c", c);
+        c = fgetc(fp);
+    }
 
 
 	fclose(fp);
