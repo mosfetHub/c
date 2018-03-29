@@ -4,11 +4,11 @@
 #include <limits.h>
 #include <pthread.h>
 
-#define QUEUE_SIZE      30
-#define TOTAL_PRODUCER  2
-#define TOTAL_CONSUMER  2
-#define TO_BE_PRODUCED  100
-#define TO_BE_CONSUMED  100
+#define QUEUE_SIZE      5
+#define TOTAL_PRODUCER  3
+#define TOTAL_CONSUMER  15
+#define TO_BE_PRODUCED  10
+#define TO_BE_CONSUMED  10
 
 
 //--------------------------------------------------------------------
@@ -69,10 +69,14 @@ void free_queue(Queue *q) {
 
 // Global Variables
 pthread_mutex_t mutex;
-pthread_cond_t producer_cond, consumer_cond;
+pthread_cond_t producer_cond; 
+pthread_cond_t consumer_cond;
+
 Queue *queue;
 int total_produced;					// Total items produced
 int total_consumed;					// Total items consumed
+int waiting_producers = 0;
+int waiting_consumers = 0;
 int producer_wait_count[TOTAL_PRODUCER];		// Count how many times producers waited
 int consumer_wait_count[TOTAL_CONSUMER];		// Count how many times consumrs waited
 
@@ -87,24 +91,45 @@ void* producer(void* arg) {
 		
 		//If the queue if full, no items to produce: wait
 		if (is_full(queue)) {
+			waiting_producers++;
 			producer_wait_count[producerID-1]++;
-			printf("PRODUCER #%d WAITING...\n", producerID);
-			while (is_full(queue)) {
+			printf("PRODUCER #%d IS WAITING...\n", producerID);
+
+			// Wait until the queue is full or the production target is reached
+			while (is_full(queue) && total_produced < TO_BE_PRODUCED) {
 				pthread_cond_wait(&producer_cond, &mutex);
 			}
+			waiting_producers--;
 		}
+		
+		// If the production target was reached while waiting, break
+		if (total_produced >= TO_BE_PRODUCED) {
+			pthread_mutex_unlock(&mutex);
+			break;
+		}
+		
 		// Produce item
-		printf("Producer #%d is producing its #%d item\n", producerID, i);
+		printf("Producer #%d is producing its #%d item. ", producerID, i);
 		enqueue(queue, 1);
 		total_produced++;
 		i++;
+		printf("Total produced items = %d\n", total_produced);
 
-		// Signal consumer and unlock
+		// Signal any waiting consumer that an item was produced
 		pthread_cond_signal(&consumer_cond);
+
+		// If produce item target is reached, then signal other producers to so that they end waiting
+		if (total_produced == TO_BE_PRODUCED) {
+			printf("Production target reached. Broadcasting to producers\n");
+			pthread_cond_broadcast(&producer_cond);
+		}
+
+		// Unlock mutex
 		pthread_mutex_unlock(&mutex);
 	}
 
-	// Exit
+	// EXIT
+	printf("Producer #%d Exiting\n", producerID);
 	pthread_exit(NULL);
 }
 
@@ -112,31 +137,53 @@ void* producer(void* arg) {
 // Thread function run by the consumer
 void* consumer(void* arg) {
 	int consumerID = (intptr_t) arg;
+	
 	int i = 1;
 	while (total_consumed < TO_BE_CONSUMED) {
 		// Lock mutex
 		pthread_mutex_lock(&mutex);
 		
 		// If the queue is empty, no items to consume: wait 
-		if (is_empty(queue)) {
+		if (is_empty(queue) && total_consumed < TO_BE_CONSUMED) {
+			waiting_consumers++;
 			consumer_wait_count[consumerID-1]++;
 			printf("CONSUMER #%d WAITING...\n", consumerID);
-			while (is_empty(queue)) {
+			
+			// Wait until the queue is empty or the consumption target is reached
+			while (is_empty(queue) && total_consumed < TO_BE_CONSUMED) {
 				pthread_cond_wait(&consumer_cond, &mutex);
 			}
+			waiting_consumers--;
 		}
-		// Consume item
-		printf("Consumer #%d is consuming its #%d item\n", consumerID, i);
+
+		// If the consumption target was reached while waiting, unlock and break
+		if (total_consumed >= TO_BE_CONSUMED) {
+			pthread_mutex_unlock(&mutex);
+			break;
+		}
+
+		// All set to Consume item
+		printf("Consumer #%d is consuming its #%d item. ", consumerID, i);
 		dequeue(queue);
 		total_consumed++;
 		i++;
+		printf("Total consumed = %d\n", total_consumed);
 
-		// Signal producer and unlock mutex
+		// Signal any waiting producer that an item was consumed
 		pthread_cond_signal(&producer_cond);
+
+		// If the consumed item target is reached, then signal other consumers to exit waiting
+		if (total_consumed == TO_BE_CONSUMED) {
+			printf("Consumption target reached. Broadcasting to consumers\n");
+			pthread_cond_broadcast(&consumer_cond);
+		}
+		
+		// Unlock mutex
 		pthread_mutex_unlock(&mutex);
 	}
-
-	// Exit
+	
+	// EXIT
+	printf("Consumer #%d Exiting\n", consumerID);
 	pthread_exit(NULL);
 }
 
@@ -146,9 +193,10 @@ void initialize_all(void) {
     	pthread_cond_init(&consumer_cond, NULL);
 
     	queue = make_queue(QUEUE_SIZE);
-    	total_produced = 0;
-    	total_consumed = 0;
-    	int i;
+    	total_produced   = 0;
+    	total_consumed   = 0;
+	
+	int i;
     	for (i = 0; i < TOTAL_PRODUCER; i++) {
         	producer_wait_count[i] = 0;
     	}
@@ -159,35 +207,59 @@ void initialize_all(void) {
 
 int main(int argc, char* argv[]) {
 	// Threads
-	pthread_t pt[TOTAL_PRODUCER];
-	pthread_t ct[TOTAL_CONSUMER];
+	pthread_t pt[TOTAL_PRODUCER];	// Producer threads
+	pthread_t ct[TOTAL_CONSUMER];	// Consumer threads
 
 	// Initialize global variables
 	initialize_all();
 
 	// Create threads
-	int i;
+	int i, status;
 	for (i = 0; i < TOTAL_CONSUMER; i++) {
-		pthread_create(&ct[i], NULL, consumer, (void*)(intptr_t)(i+1));
+		status = pthread_create(&ct[i], NULL, consumer, (void*)(intptr_t)(i+1));
+		if (status) {
+			exit(-1);
+		}
 	}
 	for (i = 0; i < TOTAL_PRODUCER; i++) {
-		pthread_create(&pt[i], NULL, producer, (void*)(intptr_t)(i+1));
+		status = pthread_create(&pt[i], NULL, producer, (void*)(intptr_t)(i+1));
+		if (status) {
+			exit(-1);
+		}
 	}
 
 	// Wait threads to join back
 	for (i = 0; i < TOTAL_CONSUMER; i++) {
-		pthread_join(ct[i], NULL);
+		status = pthread_join(ct[i], NULL);
+		if (status) {
+			printf("FROM MAIN: ERROR JOINING CONSUMER. status = %d\n", status);
+			perror("pthread_join() error");
+			exit(-1);
+		}
+		else {
+			printf("FROM MAIN: CONSUMER #%d JOINED\n", i+1);
+		}
 	}
-	for (i = 0; i < TOTAL_PRODUCER; i++); {
-		pthread_join(pt[i], NULL);
+	for (i = 0; i < TOTAL_PRODUCER; i++) {
+		status = pthread_join(pt[i], NULL);
+		if (status) {
+			printf("FROM MAIN: ERROR JOINING PRODUCER. status = %d\n", status);
+			perror("pthread_join() error");
+			exit(-1);
+		}
+		else {
+			printf("FROM MAIN: PRODUCER #%d JOINED\n", i+1);
+
+		}
 	}
+	
 
 	// Print how many times producer and consumers waited
 	printf("\n\n");
 	for (i = 0; i < TOTAL_PRODUCER; i++) {
 		printf("Producer #%d waited %d times\n", i+1, producer_wait_count[i]);
 	}
-	for (i = 0; i < TOTAL_CONSUMER;i++) {
+	for (i = 0; i < TOTAL_CONSUMER; i++) {
 		printf("Consumer #%d waited %d times\n", i+1, consumer_wait_count[i]);
 	}
 
